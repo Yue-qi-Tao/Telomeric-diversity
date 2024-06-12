@@ -1,0 +1,42 @@
+# minimap2 2.26
+minimap2 -ax map-hifi -t {threads} {input.ref} {input.fastq}|samtools sort -@ {threads} -O bam -o {output.bam}
+
+# mosdepth 
+mosdepth -F 2308 -b 10000 -Q 20 -n -t {threads} {wildcards.sample} {params.bam}
+
+# dv 1.6.0
+sample={wildcards.sample}
+singularity exec -B {params.indir}:/input -B {params.outdir}:/output {params.sif} /bin/bash -c "/opt/deepvariant/bin/run_deepvariant --model_type PACBIO --ref /input/Col-CC.ChrM_ChrC.fa --reads /input    /{wildcards.sample}.sorted.bam --regions {wildcards.chr} --output_vcf=/output/{wildcards.sample}.{wildcards.chr}.vcf.gz --output_gvcf=/output/{wildcards.sample}.{wildcards.chr}.g.vcf.gz --intermediate_results    _dir=/output/{wildcards.sample}_{wildcards.chr} --num_shards={threads} --sample_name={wildcards.sample}"
+
+# glnexus v1.4.1-0-g68e25e5
+for i in `seq 1 5`;do glnexus_cli --config DeepVariantWGS -t 36 ./*.Chr${i}.g.vcf.gz|bcftools view --threads 36 -O z -o Ath145.dv.Chr${i}.vcf.gz;done
+
+# filter by ind call (dp > 5 & dp < mean_dp*2 & gq>30)
+for i in `seq 1 5`;do python fiter_vcf_dp_gq.py -i telo74.dv.Chr${i}.vcf.gz -o telo74.dv.filter.Chr${i}.vcf.gz -d hifi_depth.tsv
+
+# filter by bcftools 1.17, MAF>0.01 & Missing rate <0.2 & QUAL >30
+for i in `seq 1 5`;do bcftools view --threads 12 -v snps -m 2 -M 2 -i 'QUAL>30 && MAF>0.01 && F_missing <0.2' -O z -o telo74_MAF01_missing20_bialleic.snps.Chr${i}.vcf.gz telo74.dv.filter.Chr${i}.vcf.gz
+
+bcftools concat -O z -o telo74.all.vcf.gz telo74_MAF01_missing20_bialleic.snps.Chr*.vcf.gz 
+
+# exclude mask region (rDNA,centromere by SRF)
+
+## kmc 3.2.1
+kmc -fm -k151 -t16 -ci20 -cs100000 Col-CC.fa count.kmc tmp_dir
+kmc_dump count.kmc count.txt
+
+## SRF 
+minimap2 -c -N1000000 -f1000 -r100,100 <(./srfutils.js enlong srf.fa) ctg.fa > srf-aln.paf
+./srfutils.js paf2bed srf-aln.paf > srf-aln.bed
+awk '$3-$2>50' srf-aln.bed|sort -k1,1V -k2,2n|bedtools merge -d 1000 > Col-CC.mask.bed
+
+## filter
+bcftools view -T^Col-CC.mask.bed -O z -o telo74_mask.vcf.gz telo74.all.vcf.gz
+
+# PCA
+## plink v1.90b7.2
+plink --vcf telo74_mask.vcf.gz --make-bed --out telo74 --vcf-half-call missing
+
+## gcta 1.94.1
+gcta --bfile telo74 --make-grm --out Ath283
+gcta --grm telo74 --pca 20 --out telo74
