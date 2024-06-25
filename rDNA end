@@ -1,0 +1,66 @@
+#!/bin/bash
+
+for line in $(cat templist); do
+	minimap2 -x map-hifi -t 70 -o "$line".paf 45S.ref.fa /0_CCS_reads/"$line".q20.fastq.gz
+	perl rdna.pl "$line".paf | awk '{if( ($4-$3)>$2*0.5 && $3 < 5000 && $4>($2-5000) )print $1}' > "$line".ID
+perl extract_seq.fq1.pl "$line".ID /0_CCS_reads/"$line".q20.fastq.gz > "$line".fastq
+grep -B1 -E "TTTAGGGTTTAGGGTTTAGGG|CCCTAAACCCTAAACCCTAAA" "$line".fastq | sed "s/@/>/" | grep -v "\-\-" > "$line".fa
+done
+
+
+#rdna.pl
+open IN1,"$ARGV[0]";
+my%hash;
+while(<IN1>){
+	chomp;
+	my@blast=(split /\t/,$_);
+	if( exists $hash{$blast[0]} ){
+		#print "$blast[0]\n";
+	}
+	else{
+		$hash{$blast[0]}=$blast[0];
+		#print "$_\n";
+		if($blast[0] ne $blast[1]){
+			print "$_\n";
+		}
+	}
+}
+
+
+#extract_seq.fq1.pl
+open IN1,"$ARGV[0]" or die "can't open $ARGV[0]";#chlo
+my%hash;
+my$num=0;
+while(<IN1>){
+	chomp;
+	$hash{$_}=$_;
+	$num++;
+}
+
+if( $ARGV[1] =~m/\.gz$/ ){
+	open IN3,"gunzip -dc $ARGV[1]|";
+}else{
+	open IN3,"$ARGV[1]";
+}
+
+my$num_read=0;
+
+while(<IN3>){
+	my$ID=$_;
+	my$seq=<IN3>;
+	my$plus=<IN3>;
+	my$qua=<IN3>;
+	chomp($ID);
+	$ID=$1 if(/(\S+?)\s+(\S+?)/);
+	$ID=~s/@//;
+	if( exists $hash{$ID} ){
+		print  "$_$seq$plus$qua";
+		$num_read++;
+		if($num_read == $num ){
+			last;
+		}
+	}
+	#	if( exists $hash_1{$ID}){
+	#	print OUT2 "$_$seq$pusl$qua";
+	#}
+}
