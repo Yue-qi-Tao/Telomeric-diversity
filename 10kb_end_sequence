@@ -1,0 +1,27 @@
+#!/bin/bash
+
+cat list | xargs -P 80 -I {} bash -c '
+
+line="{}"
+
+zcat "$line".Chr_scaffolds.fa.gz | \
+awk '"'"'/^>/ {
+    if (seq != "") {
+        print substr(seq, 1, 10000);
+        print substr(seq, length(seq)-9999);
+    }
+    seq="";
+    print;
+    next
+}
+{
+    seq = seq $0
+}
+END {
+    if (seq != "") {
+        print substr(seq, 1, 10000);
+        print substr(seq, length(seq)-9999);
+    }
+}'"'"' > "$line".Chr_end.txt
+
+'
